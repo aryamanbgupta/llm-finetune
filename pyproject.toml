@@ -9,6 +9,7 @@ dependencies = [
     "datasets>=3.6.0",
     "einops>=0.8.1",
     "peft>=0.15.2",
+    "prime-cli>=0.2.13",
     "tiktoken>=0.9.0",
     "torch>=2.7.1",
     "transformers>=4.52.4",
