@@ -41,7 +41,7 @@ for tok in  OUTCOME2TOK.values():
     #print(tok,ids)
     assert len(ids) == 1, f"{tok} splits into multiple tokens"
 
-def build_dataset(jsonl_path: str, tokenizer, max_len: int =64):
+def build_dataset(jsonl_path: str, tokenizer, max_len: int =128):
     """
     Prepares the dataset for training with the critical loss masking logic.
     Labels for the prompt tokens are set to -100 to be ignored by the loss function.

@@ -1,0 +1,30 @@
+{"prompt": "0.1: 0/0 | Recent: --------- | P:0@0b(0rr) | Pollock(New) vs Hopes(new) | PP 0.1 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "0.2: 0/0 | Recent: --------0 | P:0@1b(0.0rr) | Pollock(Econ0.0) vs Hopes(new,0 Runs @ 0 SR) | PP 0.2 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "0.3: 0/0 | Recent: ------0-0 | P:0@2b(0.0rr) | Pollock(Econ0.0) vs Hopes(new,0 Runs @ 0 SR) | PP 0.3 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "0.4: 0/0 | Recent: ----0-0-0 | P:0@3b(0.0rr) | Pollock(Econ0.0) vs Hopes(new,0 Runs @ 0 SR) | PP 0.4 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "0.5: 0/0 | Recent: --0-0-0-0 | P:0@4b(0.0rr) | Pollock(Econ0.0) vs Hopes(new,0 Runs @ 0 SR) | PP 0.5 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "0.6: 1/0 | Recent: 0-0-0-0-1 | P:1@5b(1.2rr) | Pollock(Econ1.2) vs Martyn(new) | PP 0.6 | Australia vs South Africa, Brisbane", "target": "4"}
+{"prompt": "1.1: 5/0 | Recent: 0-0-0-1-4 | P:5@6b(5.0rr) | Kruger(New) vs Hopes(new,1 Runs @ 20 SR) | PP 1.1 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "1.2: 5/0 | Recent: 0-0-1-4-0 | P:5@7b(4.3rr) | Kruger(Econ0.0) vs Hopes(new,1 Runs @ 17 SR) | PP 1.2 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "1.3: 6/0 | Recent: 0-1-4-0-1 | P:6@8b(4.5rr) | Kruger(Econ3.0) vs Martyn(new,4 Runs @ 400 SR) | PP 1.3 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "1.4: 7/0 | Recent: 1-4-0-1-1 | P:7@9b(4.7rr) | Kruger(Econ4.0) vs Hopes(new,2 Runs @ 29 SR) | PP 1.4 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "1.5: 7/0 | Recent: 4-0-1-1-0 | P:7@10b(4.2rr) | Kruger(Econ3.0) vs Hopes(new,2 Runs @ 25 SR) | PP 1.5 | Australia vs South Africa, Brisbane", "target": "4"}
+{"prompt": "1.6: 11/0 | Recent: 0-1-1-0-4 | P:11@11b(6.0rr) | Kruger(Econ7.2) vs Hopes(new,6 Runs @ 67 SR) | PP 1.6 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "2.1: 11/0 | Recent: 1-1-0-4-0 | P:11@12b(5.5rr) | Pollock(Econ5.0) vs Martyn(new,5 Runs @ 250 SR) | PP 2.1 | Australia vs South Africa, Brisbane", "target": "6"}
+{"prompt": "2.2: 17/0 | Recent: 1-0-4-0-6 | P:17@13b(7.8rr) | Pollock(Econ9.4) vs Martyn(new,11 Runs @ 367 SR) | PP 2.2 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "2.3: 17/0 | Recent: 0-4-0-6-0 | P:17@14b(7.3rr) | Pollock(Econ8.2) vs Martyn(new,11 Runs @ 275 SR) | PP 2.3 | Australia vs South Africa, Brisbane", "target": "4"}
+{"prompt": "2.4: 21/0 | Recent: 4-0-6-0-4 | P:21@15b(8.4rr) | Pollock(Econ10.0) vs Martyn(new,15 Runs @ 300 SR) | PP 2.4 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "2.5: 22/0 | Recent: 0-6-0-4-1 | P:22@16b(8.2rr) | Pollock(Econ9.6) vs Hopes(set,6 Runs @ 60 SR) | PP 2.5 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "2.6: 23/0 | Recent: 6-0-4-1-1 | P:23@17b(8.1rr) | Pollock(Econ9.3) vs Martyn(new,16 Runs @ 267 SR) | PP 2.6 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "3.1: 23/0 | Recent: 0-4-1-1-0 | P:23@18b(7.7rr) | Kruger(Econ6.0) vs Hopes(set,7 Runs @ 64 SR) | PP 3.1 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "3.2: 23/0 | Recent: 4-1-1-0-0 | P:23@19b(7.3rr) | Kruger(Econ5.1) vs Hopes(set,7 Runs @ 58 SR) | PP 3.2 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "3.3: 24/0 | Recent: 1-1-0-0-1 | P:24@20b(7.2rr) | Kruger(Econ5.2) vs Martyn(new,16 Runs @ 229 SR) | PP 3.3 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "3.4: 25/0 | Recent: 1-0-0-1-1 | P:25@21b(7.1rr) | Kruger(Econ5.3) vs Hopes(set,8 Runs @ 62 SR) | PP 3.4 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "3.5: 26/0 | Recent: 0-0-1-1-1 | P:26@22b(7.1rr) | Kruger(Econ5.4) vs Martyn(new,17 Runs @ 212 SR) | PP 3.5 | Australia vs South Africa, Brisbane", "target": "4"}
+{"prompt": "3.6: 30/0 | Recent: 0-1-1-1-4 | P:30@23b(7.8rr) | Kruger(Econ7.1) vs Martyn(new,17 Runs @ 189 SR) | PP 3.6 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "4.1: 31/0 | Recent: 1-1-1-4-1 | P:31@24b(7.8rr) | Pollock(Econ8.5) vs Martyn(set,18 Runs @ 180 SR) | PP 4.1 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "4.2: 32/0 | Recent: 1-1-4-1-1 | P:32@25b(7.7rr) | Pollock(Econ8.3) vs Hopes(set,9 Runs @ 64 SR) | PP 4.2 | Australia vs South Africa, Brisbane", "target": "1"}
+{"prompt": "4.3: 33/0 | Recent: 1-4-1-1-1 | P:33@26b(7.6rr) | Pollock(Econ8.1) vs Martyn(set,19 Runs @ 173 SR) | PP 4.3 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "4.4: 33/0 | Recent: 4-1-1-1-0 | P:33@27b(7.3rr) | Pollock(Econ7.6) vs Martyn(set,19 Runs @ 158 SR) | PP 4.4 | Australia vs South Africa, Brisbane", "target": "6"}
+{"prompt": "4.5: 39/0 | Recent: 1-1-1-0-6 | P:39@28b(8.4rr) | Pollock(Econ9.4) vs Martyn(set,25 Runs @ 192 SR) | PP 4.5 | Australia vs South Africa, Brisbane", "target": "0"}
+{"prompt": "4.6: 39/0 | Recent: 1-1-0-6-0 | P:39@29b(8.1rr) | Pollock(Econ8.8) vs Martyn(set,25 Runs @ 179 SR) | PP 4.6 | Australia vs South Africa, Brisbane", "target": "0"}

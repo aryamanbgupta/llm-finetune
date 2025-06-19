@@ -14,4 +14,4 @@ wheels/
 /qwen-cricket-peft
 /qwen-cricket-peft-2
 cricket_prompts.jsonl
-cricket-prompts-v2.jsonl
+cricket_prompts-v2.jsonl
