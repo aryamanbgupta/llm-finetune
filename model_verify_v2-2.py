@@ -32,7 +32,7 @@ def build_dataset(jsonl_path: str, tokenizer, max_len: int = 64):
         enc = tokenizer(full_text, truncation=True, padding="max_length", max_length=max_len)
 
         # --- The Critical Fix Logic ---
-        prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+        prompt_ids = tokenizer(prompt_text, add_special_tokens=True)["input_ids"]
         prompt_length = len(prompt_ids)
         labels = [-100] * max_len # Start with all labels ignored
 
