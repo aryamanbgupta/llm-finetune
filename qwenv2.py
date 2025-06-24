@@ -15,7 +15,7 @@ if tokenizer.pad_token is None:
     tokenizer.pad_token = '<|endoftext|>'
 
 # Simplified CUDA-focused device handling
-dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 device_map = "auto" if torch.cuda.is_available() else None
 
 model = AutoModelForCausalLM.from_pretrained(
@@ -82,7 +82,7 @@ def train_qwen (model, dataset, out_dir, epochs:int, batch: int, resume: bool):
         num_train_epochs= epochs,
         gradient_accumulation_steps = 4,
         learning_rate= 3e-4,
-        fp16 = torch.cuda.is_available(),
+        bf16 = torch.cuda.is_available(),
         logging_steps= 25,
         save_strategy= "steps",
         save_steps = 500,
