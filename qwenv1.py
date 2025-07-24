@@ -5,7 +5,7 @@ from peft import LoraConfig, get_peft_model
 import argparse, json, random, os, warnings, math
 from pathlib import Path
 
-model_name  = "Qwen/Qwen-1_8B"
+model_name  = "Qwen/Qwen1.5-1_8B"
 
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code = True)
 if tokenizer.pad_token is None:
