@@ -93,43 +93,32 @@ def build_dataset(jsonl_path: str, tokenizer, max_len: int =96, eval_split: floa
 
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
-    predictions = np.argmax(logits,axis=-1)
-    probabilities = torch.softmax(torch.tensor(logits),dim =-1).numpy()
-    true_labels_token_ids= []
-    predicted_token_ids = []
-    true_probs_for_loss = []
+    
+    outcome_token_ids = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
+    true_labels = []
+    pred_probs = []
 
     for i in range(len(labels)):
-        valid_label_indices = np.where(labels[i] != -100)[0]
-        if len(valid_label_indices) > 0:
-            label_idx = valid_label_indices[0]
-            true_labels_token_ids.append(labels[i][label_idx])
-            predicted_token_ids.append(predictions[i][label_idx])
-            true_probs_for_loss.append(probabilities[i][label_idx])  # Get full probability distribution
+        valid_indices = np.where(labels[i]!= -100)[0]
+        if len(valid_indices)> 0:
+            idx = valid_indices[0]
 
-    # Convert token IDs to tokens, then to outcome indices
-    true_tokens = tokenizer.convert_ids_to_tokens(true_labels_token_ids)
-    predicted_tokens = tokenizer.convert_ids_to_tokens(predicted_token_ids)
-    
-    # Map to outcome indices (0-6)
-    true_labels_indices = [OUTCOME_INDICES[TOK2OUTCOME[token]] for token in true_tokens]
-    predicted_indices = [OUTCOME_INDICES.get(TOK2OUTCOME.get(token, ""), -1) for token in predicted_tokens]
+            outcome_logits = logits[i, idx, outcome_token_ids]
+            probs = torch.softmax(torch.tensor(outcome_logits), dim=-1).numpy()
+            pred_probs.append(probs)
 
-    # Calculate accuracy
-    accuracy = accuracy_score(true_labels_indices, predicted_indices)
-    
-    # Cross-Entropy / Log Loss
-    cross_entropy = log_loss(true_labels_indices, true_probs_for_loss, labels=np.arange(len(OUTCOMES)))
-    
-    # Brier Score (manual calculation)
-    one_hot_labels = np.zeros((len(true_labels_indices), len(OUTCOMES)))
-    for i, label_index in enumerate(true_labels_indices):
-        one_hot_labels[i, label_index] = 1
-    brier_score = np.mean(np.sum((np.array(true_probs_for_loss) - one_hot_labels) ** 2, axis=1))
+            true_token_id = labels[i][idx]
+            true_token = tokenizer.convert_ids_to_tokens([true_token_id])[0]
+            true_outcome = TOK2OUTCOME.get(true_token,"0")
+            true_labels.append(OUTCOME_INDICES[true_outcome])
+    #compute metrics
+    pred_probs = np.array(pred_probs) #(n_samples, 7)
+    accuracy = accuracy_score(true_labels, np.argmax(pred_probs, axis=1))
+    cross_entropy = log_loss(true_labels, pred_probs, labels = np.arange(len(OUTCOMES)))
+
 
     return {
         "accuracy": accuracy,
-        "brier_score": brier_score,
         "cross_entropy": cross_entropy,
         "neg_cross_entropy": -cross_entropy
     }
@@ -229,7 +218,7 @@ def main():
         target_modules="all-linear",
         lora_dropout=0.0,
         bias="none",
-        modules_to_save=["lm_head"]
+        modules_to_save=["lm_head", "embed_tokens"]
     )
     peft_model = get_peft_model(model, peft_config)
     peft_model.print_trainable_parameters()
@@ -273,7 +262,12 @@ def main():
     print(f"Loss curve saved to {plot_path}")
 
     # --- Demo prediction ---
-    demo_prompt = "M Theekshana bowling to YBK Jaiswal, 7/0 after 1.4 overs, 1st innings, Pallekele"
+    demo_prompt = "2.4: 12/1 | Recent: 4-W-1-0-0 | P:1@3b(2.0rr) | Wickramasinghe(Econ2.7) vs Samson(new,0 Runs @ 0 SR) | PP 2.4 | India vs Sri Lanka, PIC"
+    dist = predict_dist(demo_prompt, peft_model, tokenizer)
+    print("\n--- Demo Prediction ---")
+    for k, v in dist.items():
+        print(f" {k:7s} : {v:.4f}")
+    demo_prompt = "2.5: 12/1 | Recent: W-1-0-0-0 | P:1@4b(1.5rr) | Wickramasinghe(Econ2.4) vs Samson(new,0 Runs @ 0 SR) | PP 2.5 | India vs Sri Lanka, PIC"
     dist = predict_dist(demo_prompt, peft_model, tokenizer)
     print("\n--- Demo Prediction ---")
     for k, v in dist.items():
