@@ -74,11 +74,8 @@ def build_dataset(jsonl_path: str, tokenizer, max_len: int =96, eval_split: floa
         labels = [-100]* max_len
     
         # Unmask the labels only for the target token
-        # This loop starts right after the prompt
-        for i in range(prompt_length, max_len):
-            if enc["input_ids"][i] == tokenizer.pad_token_id:
-                break
-            labels[i] = enc["input_ids"][i]
+        if prompt_length < max_len:
+            labels[prompt_length]= enc["input_ids"][prompt_length]
         enc["labels"] = labels
         return enc
 
@@ -124,7 +121,7 @@ def compute_metrics(eval_pred):
     }
 
 #training loop
-def train_qwen (model, train_dataset, eval_dataset, out_dir, epochs:int, batch: int, resume: bool):
+def train_qwen (model, train_dataset, eval_dataset, out_dir, epochs:int, batch: int, resume: bool, grad_accum_steps: int, grad_checkpoint: bool, learning_rate: float):
     callbacks = []
     if eval_dataset:
         from transformers import EarlyStoppingCallback
@@ -135,13 +132,13 @@ def train_qwen (model, train_dataset, eval_dataset, out_dir, epochs:int, batch: 
         per_device_train_batch_size= batch,
         per_device_eval_batch_size = batch*2,
         num_train_epochs= epochs,
-        gradient_accumulation_steps = 4,
-        learning_rate= 3e-4,
+        gradient_accumulation_steps = grad_accum_steps,
+        learning_rate= learning_rate,
         lr_scheduler_type = "cosine",
         warmup_ratio = 0.05,
         weight_decay = 0.01,
         bf16 = torch.cuda.is_available(),
-        evaluation_strategy = "steps" if eval_dataset else "no",
+        eval_strategy = "steps" if eval_dataset else "no",
         eval_steps = 500,
         logging_steps= 25,
         save_strategy= "steps",
@@ -155,7 +152,7 @@ def train_qwen (model, train_dataset, eval_dataset, out_dir, epochs:int, batch: 
         dataloader_pin_memory = True,
         dataloader_persistent_workers = True,
         seed = 42,
-        gradient_checkpointing = False,
+        gradient_checkpointing = grad_checkpoint,
         optim = "adamw_torch_fused"
 
     )
@@ -203,11 +200,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required = True)
     ap.add_argument("--epochs", type = int, default = 3)
-    ap.add_argument("--batch", type=int, default = 2)
+    ap.add_argument("--batch", type=int, default = 64)
     ap.add_argument("--lora_r", type=int, default=16, help="LoRA rank (capacity).")
     ap.add_argument("--out", default="qwen-cricket-peft-2", help="Output directory for the model.")
     ap.add_argument("--resume", action='store_true', help="Resume training from the last checkpoint.")
     ap.add_argument("--eval_split", type=float, default=0.1, help="Fraction of data for evaluation. Set to 0 to disable.")
+    ap.add_argument("--grad_accum_steps", type=int, default=1, help="Gradient accumulation steps (increase if low GPU memory).")
+    ap.add_argument("--grad_checkpoint", action='store_true', help="Enable gradient checkpointing (saves memory, slower training).")
+    ap.add_argument("--learning_rate", type=float, default=3e-4, help="Learning rate.")
+    ap.add_argument("--max_len", type=int, default=96, help="Maximum sequence length (reduce if GPU memory limited).")
 
     args = ap.parse_args()
 
@@ -231,8 +232,8 @@ def main():
             print(f"torch.compile failed with exception: {e}")
             print("Continuing with the un-compiled model.")
 
-    train_dataset, eval_dataset = build_dataset(args.data, tokenizer, eval_split = args.eval_split)
-    trainer = train_qwen(peft_model, train_dataset, eval_dataset, args.out, args.epochs, args.batch, args.resume)
+    train_dataset, eval_dataset = build_dataset(args.data, tokenizer, max_len = args.max_len, eval_split = args.eval_split)
+    trainer = train_qwen(peft_model, train_dataset, eval_dataset, args.out, args.epochs, args.batch, args.resume, args.grad_accum_steps, args.grad_checkpoint, args.learning_rate)
 
      # --- Plot and save the loss curve after training ---
     print("Generating loss curve...")
