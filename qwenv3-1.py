@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss, brier_score_loss
 
+os.environ["TOKENIZERS_PARALLELISM"]= "false"
 print(f"PyTorch version: {torch.__version__}")
 model_name  = "Qwen/Qwen1.5-1.8B"
 
@@ -130,7 +131,7 @@ def train_qwen (model, train_dataset, eval_dataset, out_dir, epochs:int, batch: 
     args = TrainingArguments(
         output_dir= out_dir,
         per_device_train_batch_size= batch,
-        per_device_eval_batch_size = batch*2,
+        per_device_eval_batch_size = int(batch/4),
         num_train_epochs= epochs,
         gradient_accumulation_steps = grad_accum_steps,
         learning_rate= learning_rate,
@@ -143,18 +144,19 @@ def train_qwen (model, train_dataset, eval_dataset, out_dir, epochs:int, batch: 
         logging_steps= 25,
         save_strategy= "steps",
         save_steps = 500,
-        load_best_model_at_end = True if eval_dataset else False,
-        metric_for_best_model = "neg_cross_entropy" if eval_dataset else None,
+        load_best_model_at_end = False,
+        metric_for_best_model =  None,
         greater_is_better= True,
         save_total_limit = 3,
         report_to= "tensorboard",
-        dataloader_num_workers= os.cpu_count() or 4,
+        dataloader_num_workers= os.cpu_count()-4 or 4,
         dataloader_pin_memory = True,
-        dataloader_persistent_workers = True,
+        dataloader_persistent_workers = False,
         seed = 42,
         gradient_checkpointing = grad_checkpoint,
         optim = "adamw_torch_fused",
-        remove_unused_columns= False
+        remove_unused_columns=False,
+        dataloader_drop_last = True,
     )
     trainer = Trainer(
         model=model, 
@@ -226,7 +228,7 @@ def main():
 
     if torch.cuda.is_available():
         try:
-            print("Compiling model with torch.compile(mode='default')...")
+            print("Compiling model with torch.compile(mode='max-autotune')...")
             peft_model = torch.compile(peft_model, mode="default")
         except Exception as e:
             print(f"torch.compile failed with exception: {e}")
