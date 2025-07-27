@@ -192,13 +192,13 @@ def main():
     peft_model = get_peft_model(model, peft_config)
     peft_model.print_trainable_parameters()
 
-    if torch.cuda.is_available():
-        try:
-            print("Compiling model with torch.compile(mode='reduce-overhead')...")
-            peft_model = torch.compile(peft_model, mode="reduce-overhead")
-        except Exception as e:
-            print(f"torch.compile failed with exception: {e}")
-            print("Continuing with the un-compiled model.")
+    # if torch.cuda.is_available():
+    #     try:
+    #         print("Compiling model with torch.compile(mode='reduce-overhead')...")
+    #         peft_model = torch.compile(peft_model, mode="reduce-overhead")
+    #     except Exception as e:
+    #         print(f"torch.compile failed with exception: {e}")
+    #         print("Continuing with the un-compiled model.")
 
     train_dataset, eval_dataset = build_dataset(args.data, tokenizer, max_len = args.max_len, eval_split = args.eval_split)
     
