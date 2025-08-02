@@ -13,6 +13,7 @@ wheels/
 /data
 /qwen-cricket-peft
 /qwen-cricket-peft-2
+/models
 cricket_prompts.jsonl
 cricket_prompts-v2.jsonl
 *.jsonl
