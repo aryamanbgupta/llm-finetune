@@ -60,7 +60,11 @@ class BowlerStats:
     
     def update(self, outcome: str):
         self.balls += 1
-        self.overs = self.balls // 6 + (self.balls % 6) * 0.1
+        
+        # Calculate overs in cricket format (0.1, 0.2... 0.5, 1.0, 1.1...)
+        complete_overs = self.balls // 6
+        balls_in_over = self.balls % 6
+        self.overs = complete_overs + (balls_in_over * 0.1)
         
         if outcome == "WICKET":
             self.wickets += 1
@@ -68,8 +72,8 @@ class BowlerStats:
             self.runs += int(outcome)
         
         # Update economy
-        complete_overs = self.balls / 6
-        self.economy = self.runs / complete_overs if complete_overs > 0 else 0.0
+        overs_decimal = self.balls / 6.0  # Use decimal for economy calculation
+        self.economy = self.runs / overs_decimal if overs_decimal > 0 else 0.0
 
 class MatchState:
     def __init__(self, team1_name: str, team2_name: str, team1_players: List[Player], 
@@ -176,48 +180,108 @@ class MatchState:
     
     def generate_prompt(self) -> str:
         """Generate prompt in the exact format from training"""
-        # Format: "2.4: 12/1 | Recent: 4-W-1-0-0 | P:1@3b(2.0rr) | Wickramasinghe(Econ2.7) vs Samson(new,0 Runs @ 0 SR) | PP 2.4 | India vs Sri Lanka, PIC"
+        # Check if innings is over due to all out
+        if self.wickets >= 10:
+            return ""  # No prompt needed if all out
         
-        # Current over.ball
-        over_ball = f"{self.overs}.{self.balls % 6}"
+        # Current over.ball for NEXT delivery (matching training format)
+        # Training shows the ball about to be bowled, not current position
+        next_ball_number = (self.balls % 6) + 1
+        current_over = self.balls // 6
+        if next_ball_number > 6:  # Start of new over
+            current_over += 1
+            next_ball_number = 1
+        over_ball = f"{current_over}.{next_ball_number}"
         
-        # Score
-        score_str = f"{self.score}/{self.wickets}"
+        # 1. SITUATION - Different for 1st vs 2nd innings
+        if self.innings == 2:
+            # Second innings includes target info
+            target = self.innings_scores.get(list(self.innings_scores.keys())[0], {}).get("runs", 0) + 1
+            runs_needed = target - self.score
+            balls_remaining = (20 * 6) - self.balls
+            overs_remaining = balls_remaining / 6.0
+            
+            if overs_remaining > 0:
+                rrr = round(runs_needed / overs_remaining, 1)
+            else:
+                rrr = 0.0
+            
+            situation = f"{over_ball}: {self.score}/{self.wickets} Need{runs_needed}@{rrr}"
+        else:
+            # First innings - simple format
+            situation = f"{over_ball}: {self.score}/{self.wickets}"
         
-        # Recent balls (last 5)
-        recent = "-".join(self.recent_balls[-5:]) if self.recent_balls else ""
-        recent_str = f"Recent: {recent}" if recent else "Recent: "
+        # 2. RECENT (last 5 balls with padding at start)
+        # Get recent balls and pad to 5
+        recent_list = self.recent_balls[-5:] if len(self.recent_balls) >= 5 else self.recent_balls[:]
+        while len(recent_list) < 5:
+            recent_list.insert(0, "-")  # Pad at beginning
+        recent_str = f"Recent: {'-'.join(recent_list)}"
         
-        # Partnership
-        partnership_rr = (self.partnership_runs / self.partnership_balls * 6) if self.partnership_balls > 0 else 0.0
-        partnership_str = f"P:{self.wickets}@{self.partnership_balls}b({partnership_rr:.1f}rr)"
+        # 3. PARTNERSHIP - shows partnership RUNS
+        if self.partnership_balls > 0:
+            p_rate = round((self.partnership_runs / self.partnership_balls) * 6, 1)
+            partnership_str = f"P:{self.partnership_runs}@{self.partnership_balls}b({p_rate}rr)"
+        else:
+            partnership_str = "P:0@0b(0.0rr)"
+        
+        # 4. PLAYERS
+        # Get last names only
+        bowler_name = self.current_bowler.name.split()[-1] if " " in self.current_bowler.name else self.current_bowler.name
+        striker_name = self.current_batsmen[0].name.split()[-1] if " " in self.current_batsmen[0].name else self.current_batsmen[0].name
         
         # Bowler stats
         bowler_stats = self.bowling_stats[self.bowling_team][self.current_bowler.name]
-        bowler_str = f"{self.current_bowler.name}(Econ{bowler_stats.economy:.1f})"
+        if bowler_stats.wickets > 0:
+            bowler_str = f"{bowler_name}(Econ{bowler_stats.economy:.1f},{bowler_stats.wickets}W)"
+        else:
+            bowler_str = f"{bowler_name}(Econ{bowler_stats.economy:.1f})"
         
-        # Batsman stats
-        striker = self.current_batsmen[0]
-        batsman_stats = self.batting_stats[self.batting_team][striker.name]
+        # Batsman stats - match training format exactly
+        batsman_stats = self.batting_stats[self.batting_team][self.current_batsmen[0].name]
         
         if batsman_stats.balls == 0:
-            batsman_str = f"{striker.name}(new,0 Runs @ 0 SR)"
+            # Brand new batsman
+            batsman_str = f"{striker_name}(new,0 Runs @ 0 SR)"
+        elif batsman_stats.balls < 10:
+            # Still "new" but has faced some balls
+            batsman_str = f"{striker_name}(new,{batsman_stats.runs} Runs @ {int(batsman_stats.strike_rate)} SR)"
         else:
-            batsman_str = f"{striker.name}({batsman_stats.runs} Runs @ {batsman_stats.strike_rate:.0f} SR)"
+            # Set batsman
+            batsman_str = f"{striker_name}(set,{batsman_stats.runs} Runs @ {int(batsman_stats.strike_rate)} SR)"
         
-        # Phase (PP = PowerPlay, etc)
-        if self.overs < 6:
-            phase = f"PP {over_ball}"
-        elif self.overs < 16:
-            phase = f"Mid {over_ball}"
+        players_str = f"{bowler_str} vs {batsman_str}"
+        
+        # 5. CONTEXT
+        # Phase with over.ball repeated
+        if current_over < 6:
+            phase_str = f"PP {over_ball}"
+        elif current_over >= 16:
+            phase_str = f"Death {over_ball}"
         else:
-            phase = f"Death {over_ball}"
+            # Middle overs - training data shows no phase prefix
+            phase_str = None
         
-        # Match info
-        match_str = f"{self.batting_team} vs {self.bowling_team}, {self.venue[:3].upper()}"
+        # Venue abbreviation
+        venue_words = self.venue.replace(" Stadium", "").replace(" Cricket Ground", "").replace(" International", "").split()
+        if len(venue_words) >= 3:
+            venue_short = ''.join([w[0].upper() for w in venue_words[:3]])
+        elif len(venue_words) == 2:
+            venue_short = venue_words[0][:2].upper() + venue_words[1][0].upper()
+        else:
+            venue_short = self.venue[:3].upper()
         
-        # Combine all parts
-        prompt = f"{over_ball}: {score_str} | {recent_str} | {partnership_str} | {bowler_str} vs {batsman_str} | {phase} | {match_str}"
+        # Match string
+        match_str = f"{self.batting_team} vs {self.bowling_team}, {venue_short}"
+        
+        # Combine context
+        if phase_str:
+            context = f"{phase_str} | {match_str}"
+        else:
+            context = match_str
+        
+        # Final prompt assembly
+        prompt = f"{situation} | {recent_str} | {partnership_str} | {players_str} | {context}"
         
         return prompt
     
@@ -243,25 +307,27 @@ class MatchState:
             self.partnership_runs = 0
             self.partnership_balls = 0
             
-            # Get new batsman
-            new_batsman = self.get_next_batsman()
-            if new_batsman:
-                self.current_batsmen[0] = new_batsman  # New batsman on strike
+            # Get new batsman only if not all out
+            if self.wickets < 10:
+                new_batsman = self.get_next_batsman()
+                if new_batsman:
+                    self.current_batsmen[0] = new_batsman  # New batsman on strike
         else:
             runs = int(outcome)
             self.score += runs
             self.partnership_runs += runs
             
-            # Rotate strike on odd runs
-            if runs % 2 == 1:
+            # Rotate strike on odd runs only if not all out
+            if runs % 2 == 1 and self.wickets < 10:
                 self.current_batsmen[0], self.current_batsmen[1] = self.current_batsmen[1], self.current_batsmen[0]
         
         # Update partnership balls
         self.partnership_balls += 1
         
-        # Update batsman stats
-        striker = self.current_batsmen[0]
-        self.batting_stats[self.batting_team][striker.name].update(outcome)
+        # Update batsman stats only if not all out
+        if self.wickets < 10:
+            striker = self.current_batsmen[0]
+            self.batting_stats[self.batting_team][striker.name].update(outcome)
         
         # Update bowler stats
         self.bowling_stats[self.bowling_team][self.current_bowler.name].update(outcome)
@@ -269,9 +335,9 @@ class MatchState:
         # Record ball event
         event = BallEvent(
             over=self.overs,
-            ball=self.balls % 6,
+            ball=(self.balls - 1) % 6 + 1,  # Ball within the over (1-6)
             bowler=self.current_bowler.name,
-            batsman=striker.name,
+            batsman=self.current_batsmen[0].name if self.wickets < 10 else "ALL OUT",
             outcome=outcome,
             runs=int(outcome) if outcome != "WICKET" else 0
         )
@@ -279,13 +345,13 @@ class MatchState:
         
         # Check for over completion
         if self.balls % 6 == 0:
+            # Over is complete
             self.overs = self.balls // 6
-            # Rotate strike at end of over
-            self.current_batsmen[0], self.current_batsmen[1] = self.current_batsmen[1], self.current_batsmen[0]
+            # Rotate strike at end of over only if not all out
+            if self.wickets < 10:
+                self.current_batsmen[0], self.current_batsmen[1] = self.current_batsmen[1], self.current_batsmen[0]
             # Select new bowler
             self.current_bowler = self.select_next_bowler()
-        else:
-            self.overs = self.balls // 6
     
     def is_innings_complete(self) -> bool:
         """Check if innings is complete"""
@@ -307,176 +373,65 @@ def predict_outcome(prompt: str, model, tokenizer, device) -> tuple[str, dict]:
     """Get outcome from model - returns outcome and probability distribution"""
     model.eval()
     prompt_with_space = prompt.rstrip() + " "
-    inputs = tokenizer(prompt_with_space, return_tensors="pt")
+    inputs = tokenizer(prompt_with_space, return_tensors="pt", max_length=96, truncation=True)
     inputs = {k: v.to(device) for k, v in inputs.items()}
     
-    # Disable autocast for MPS due to numerical instability
-    if device.type == 'mps':
-        with torch.no_grad():
-            outputs = model(**inputs)
-    else:
-        with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16):
-            outputs = model(**inputs)
-    
-    logits = outputs.logits
-    last_token_logits = logits[0, -1, :]
-    
-    # Get token IDs for outcomes
-    outcome_token_ids = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
-    
-    # Debug: Check if tokens exist
-    if any(tid == tokenizer.unk_token_id for tid in outcome_token_ids):
-        print("Warning: Some outcome tokens not found in vocabulary!")
-        print("Outcome tokens:", list(OUTCOME2TOK.values()))
-        print("Token IDs:", outcome_token_ids)
-    
-    # Extract logits for outcome tokens
-    outcome_logits = last_token_logits[outcome_token_ids]
-    
-    # Debug: Check for extreme values
-    if torch.isinf(outcome_logits).any() or torch.isnan(outcome_logits).any():
-        print("Warning: Found inf/nan in outcome logits!")
-        print("Logits range:", outcome_logits.min().item(), "to", outcome_logits.max().item())
-        print("Sample prompt:", prompt_with_space[:100])
-        # Use uniform distribution as fallback
-        outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
-    else:
+    with torch.no_grad(), torch.cuda.amp.autocast(enabled=device.type=='cuda'):
+        outputs = model(**inputs)
+        logits = outputs.logits[0, -1, :]
+        
+        # Get token IDs for outcomes
+        outcome_token_ids = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
+        outcome_logits = logits[outcome_token_ids]
+        
         # Use log-softmax for numerical stability
         log_probs = torch.log_softmax(outcome_logits, dim=-1)
         outcome_probs = torch.exp(log_probs).cpu().numpy()
         
-        # Check for NaN in probabilities
-        if np.isnan(outcome_probs).any():
-            print("Warning: NaN in probabilities, using uniform distribution")
+        # Ensure probabilities are valid
+        if np.isnan(outcome_probs).any() or np.isinf(outcome_probs).any():
+            print(f"Warning: Invalid probabilities detected, using uniform distribution")
             outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
-    
-    # Ensure probabilities sum to 1 and are positive
-    outcome_probs = np.clip(outcome_probs, 1e-8, 1.0)
-    outcome_probs = outcome_probs / outcome_probs.sum()
+        
+        # Clip and normalize
+        outcome_probs = np.clip(outcome_probs, 1e-8, 1.0)
+        outcome_probs = outcome_probs / outcome_probs.sum()
     
     # Create probability dictionary
     prob_dict = {outcome: prob for outcome, prob in zip(OUTCOMES, outcome_probs)}
     
     # Sample from distribution
     outcome_idx = np.random.choice(len(OUTCOMES), p=outcome_probs)
-    selected_outcome = OUTCOMES[outcome_idx]
-    
-    return selected_outcome, prob_dict
-
-def print_ball_commentary(match_state, prompt, outcome, prob_dict, ball_number):
-    """Print ball-by-ball commentary with probabilities"""
-    print(f"\n{'='*80}")
-    print(f"Ball #{ball_number} | {match_state.overs}.{match_state.balls % 6}")
-    print(f"{'='*80}")
-    
-    # Current match situation
-    print(f"🏏 {match_state.batting_team}: {match_state.score}/{match_state.wickets}")
-    print(f"🎯 {match_state.current_bowler.name} to {match_state.current_batsmen[0].name}")
-    
-    if match_state.innings == 2:
-        target = match_state.innings_scores[match_state.team1_name]["runs"] + 1
-        need = target - match_state.score
-        balls_left = (20 - match_state.overs) * 6 - (match_state.balls % 6)
-        req_rate = (need / balls_left * 6) if balls_left > 0 else 0
-        print(f"🎯 Need {need} runs in {balls_left} balls (RRR: {req_rate:.2f})")
-    
-    # Recent balls
-    if match_state.recent_balls:
-        print(f"📊 Recent: {'-'.join(match_state.recent_balls[-5:])}")
-    
-    # Model predictions
-    print(f"\n🤖 Model Input: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
-    print(f"\n📈 Probabilities:")
-    
-    # Sort probabilities for better display
-    sorted_probs = sorted(prob_dict.items(), key=lambda x: x[1], reverse=True)
-    for outcome_name, prob in sorted_probs:
-        bar_length = int(prob * 30)  # Scale to 30 characters
-        bar = '█' * bar_length + '░' * (30 - bar_length)
-        star = ' ⭐' if outcome_name == outcome else ''
-        print(f"  {outcome_name:6s}: {prob:.3f} |{bar}|{star}")
-    
-    # Selected outcome
-    print(f"\n🎲 Selected: {outcome}")
-    
-    # Outcome description
-    if outcome == "WICKET":
-        print(f"🚨 WICKET! {match_state.current_batsmen[0].name} is OUT!")
-    elif outcome == "6":
-        print(f"🚀 SIX! {match_state.current_batsmen[0].name} sends it sailing!")
-    elif outcome == "4":
-        print(f"🏏 FOUR! Beautiful shot by {match_state.current_batsmen[0].name}!")
-    elif outcome in ["1", "2", "3"]:
-        print(f"🏃 {outcome} run(s) taken")
-    else:  # outcome == "0"
-        print(f"⚫ Dot ball")
+    return OUTCOMES[outcome_idx], prob_dict
 
 def simulate_match(model, tokenizer, device, team1_name: str, team2_name: str, 
                   team1_players: List[Player], team2_players: List[Player], 
-                  venue: str = "Generic Stadium", verbose: bool = True, pause_balls: bool = False) -> Dict:
-    """Simulate a complete T20 match
-    
-    Args:
-        verbose: Print ball-by-ball commentary
-        pause_balls: Pause after each ball for manual progression (press Enter)
-    """
+                  venue: str = "Generic Stadium", verbose: bool = False) -> Dict:
     """Simulate a complete T20 match"""
     
     match = MatchState(team1_name, team2_name, team1_players, team2_players, venue)
-    ball_count = 0
     
     # First innings
-    if verbose:
-        print(f"\n🏏 FIRST INNINGS")
-        print(f"🏏 {match.batting_team} batting vs {match.bowling_team}")
-        print(f"🏟️  Venue: {venue}")
-    
     match.initialize_innings()
     while not match.is_innings_complete():
-        ball_count += 1
         prompt = match.generate_prompt()
         outcome, prob_dict = predict_outcome(prompt, model, tokenizer, device)
-        
-        if verbose:
-            print_ball_commentary(match, prompt, outcome, prob_dict, ball_count)
-            if pause_balls:
-                input("Press Enter for next ball...")
-        
         match.process_ball(outcome)
         
-        if verbose and match.is_innings_complete():
-            print(f"\n🏁 END OF FIRST INNINGS")
-            print(f"🏏 {match.batting_team}: {match.score}/{match.wickets} ({match.overs} overs)")
+        if verbose and match.balls % 30 == 0:  # Print every 5 overs
+            print(f"Over {match.overs}: {match.batting_team} {match.score}/{match.wickets}")
     
     # Second innings
     match.switch_innings()
     target = match.innings_scores[team1_name]["runs"] + 1
     
-    if verbose:
-        print(f"\n🏏 SECOND INNINGS")
-        print(f"🏏 {match.batting_team} batting vs {match.bowling_team}")
-        print(f"🎯 Target: {target} runs")
-    
     while not match.is_innings_complete() and match.score < target:
-        ball_count += 1
         prompt = match.generate_prompt()
         outcome, prob_dict = predict_outcome(prompt, model, tokenizer, device)
-        
-        if verbose:
-            print_ball_commentary(match, prompt, outcome, prob_dict, ball_count)
-            if pause_balls:
-                input("Press Enter for next ball...")
-        
         match.process_ball(outcome)
         
-        if match.score >= target:
-            if verbose:
-                print(f"\n🎉 {match.batting_team} WINS!")
-            break
-    
-    if verbose and match.score < target:
-        print(f"\n🏁 END OF SECOND INNINGS")
-        print(f"🏏 {match.batting_team}: {match.score}/{match.wickets} ({match.overs} overs)")
+        if verbose and match.balls % 30 == 0:  # Print every 5 overs
+            print(f"Over {match.overs}: {match.batting_team} {match.score}/{match.wickets} (Need {target - match.score})")
     
     # Store second innings score
     match.innings_scores[match.batting_team] = {"runs": match.score, "wickets": match.wickets, "overs": match.overs}
@@ -498,19 +453,15 @@ def simulate_match(model, tokenizer, device, team1_name: str, team2_name: str,
         "ball_by_ball": match.ball_by_ball
     }
 
-def get_optimal_device():
-    """Get best available device for Apple Silicon"""
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    else:
-        return torch.device("cpu")
-
-def load_model(model_path: str, base_model_name: str = "Qwen/Qwen1.5-1.8B"):
-    """Load fine-tuned model - optimized for Apple Silicon"""
-    device = get_optimal_device()
+def load_model(model_path: str):
+    """Load fine-tuned model with proper token handling"""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # Setup tokenizer (matching verification script)
+    # Load base model first
+    base_model_name = "Qwen/Qwen1.5-1.8B"
+    
+    # Setup tokenizer
     tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=False)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -520,23 +471,16 @@ def load_model(model_path: str, base_model_name: str = "Qwen/Qwen1.5-1.8B"):
     special_tokens_to_add = list(OUTCOME2TOK.values())
     tokenizer.add_special_tokens({'additional_special_tokens': special_tokens_to_add})
     
-    # Load base model with device-specific optimizations
-    # Use float32 for MPS due to numerical stability issues with float16
-    if device.type == 'mps':
-        print("Using float32 for MPS numerical stability")
-        dtype = torch.float32
-    else:
-        dtype = torch.float16
-        
+    # Load base model
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
-        torch_dtype=dtype,
-        device_map=None,  # Manual device placement
+        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        device_map=None,  # Manual device placement for better control
         trust_remote_code=False,
-        low_cpu_mem_usage=True
+        attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager"
     )
     
-    # Resize embeddings for special tokens (crucial step)
+    # CRITICAL: Resize embeddings to match tokenizer with special tokens
     base_model.resize_token_embeddings(len(tokenizer))
     
     # Load PEFT model
@@ -544,16 +488,13 @@ def load_model(model_path: str, base_model_name: str = "Qwen/Qwen1.5-1.8B"):
     model = model.to(device)
     model.eval()
     
-    # Skip torch.compile for MPS due to Metal shader compilation issues
-    # Only attempt compilation for CUDA
-    if hasattr(torch, 'compile') and device.type == 'cuda':
+    # Compile for GPU optimization (H200 will benefit from this)
+    if torch.cuda.is_available() and hasattr(torch, 'compile'):
         try:
             model = torch.compile(model, mode='reduce-overhead')
-            print("Model compiled for optimization")
+            print("Model compiled for GPU optimization")
         except:
             print("Torch compile failed, using standard model")
-    else:
-        print("Using standard model (MPS doesn't support torch.compile reliably)")
     
     return model, tokenizer, device
 
@@ -591,7 +532,7 @@ def create_sample_teams():
 
 if __name__ == "__main__":
     # Example usage
-    model_path = "models/checkpoint-24000"  # Your actual checkpoint path
+    model_path = "qwen-cricket-peft-2"  # Your model path
     
     print("Loading model...")
     model, tokenizer, device = load_model(model_path)
@@ -605,8 +546,7 @@ if __name__ == "__main__":
         "India", "Sri Lanka",
         team1_players, team2_players,
         "Premadasa International Cricket Stadium",
-        verbose=True,  # Set to False for quiet simulation
-        pause_balls=False  # Set to True to pause after each ball
+        verbose=True  # Set to True to see progress every 5 overs
     )
     
     # Print scorecard
