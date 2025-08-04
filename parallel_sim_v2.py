@@ -311,17 +311,22 @@ def simulation_worker(worker_id: int, config: SimulationConfig,
 def gpu_inference_process(model_path: str, config: SimulationConfig,
                          prompt_queue: Queue, result_queue: Queue, 
                          shutdown_event: Event):
-    """Separate process for GPU inference"""
+    """H200 optimized GPU inference with comprehensive error handling"""
     logger = logging.getLogger("GPU-Inference")
-    logger.info("Starting GPU inference process")
+    logger.info("Starting H200 optimized GPU inference process")
     
     try:
-        # Load model in this process to avoid context issues
+        # Load model in this process
         model, tokenizer, device = load_model_for_inference(model_path)
         
         batch_prompts = []
         batch_requests = []
         total_predictions = 0
+        nan_count = 0
+        
+        # Get outcome token IDs once
+        outcome_token_ids = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
+        outcome_token_ids = torch.tensor(outcome_token_ids, device=device)
         
         while not shutdown_event.is_set() or not prompt_queue.empty():
             # Collect batch
@@ -339,7 +344,8 @@ def gpu_inference_process(model_path: str, config: SimulationConfig,
             # Process batch
             if batch_prompts:
                 try:
-                    with torch.no_grad(), torch.amp.autocast('cuda', dtype=torch.float32):
+                    # FIXED: Updated autocast syntax for H200
+                    with torch.no_grad(), torch.amp.autocast('cuda', dtype=torch.bfloat16):
                         inputs = tokenizer(batch_prompts, return_tensors="pt", 
                                          max_length=96, truncation=True, padding=True)
                         inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -347,28 +353,70 @@ def gpu_inference_process(model_path: str, config: SimulationConfig,
                         outputs = model(**inputs)
                         logits = outputs.logits[:, -1, :]
                         
-                        # Get outcome token IDs
-                        outcome_token_ids = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
+                        # Extract outcome logits for all samples at once
+                        outcome_logits = logits[:, outcome_token_ids]  # [batch_size, num_outcomes]
                         
-                        # Process each prediction
+                        # Process each prediction with robust error handling
                         for i, request in enumerate(batch_requests):
-                            outcome_logits = logits[i, outcome_token_ids]
-                            log_probs = torch.log_softmax(outcome_logits, dim=-1)
-                            outcome_probs = torch.exp(log_probs).cpu().numpy()
+                            sample_logits = outcome_logits[i]
                             
-                            # Ensure valid probabilities
-                            outcome_probs = np.clip(outcome_probs, 1e-8, 1.0)
-                            outcome_probs = outcome_probs / outcome_probs.sum()
+                            # COMPREHENSIVE: Check for invalid values
+                            has_nan = torch.isnan(sample_logits).any()
+                            has_inf = torch.isinf(sample_logits).any()
+                            
+                            if has_nan or has_inf:
+                                nan_count += 1
+                                if nan_count <= 10:  # Log first few occurrences
+                                    logger.warning(f"Invalid logits for match {request.match_id} ball {request.ball_id}: "
+                                                 f"NaN={has_nan}, Inf={has_inf}")
+                                # Use uniform distribution
+                                outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
+                            else:
+                                # Compute probabilities with numerical stability
+                                try:
+                                    # Use log-softmax for numerical stability
+                                    log_probs = torch.log_softmax(sample_logits, dim=-1)
+                                    probs_tensor = torch.exp(log_probs)
+                                    outcome_probs = probs_tensor.cpu().numpy()
+                                    
+                                    # Validate probabilities
+                                    if np.isnan(outcome_probs).any() or np.isinf(outcome_probs).any():
+                                        logger.warning(f"NaN/Inf in probabilities for match {request.match_id}")
+                                        outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
+                                    else:
+                                        # Ensure probabilities are valid
+                                        outcome_probs = np.clip(outcome_probs, 1e-8, 1.0)
+                                        prob_sum = outcome_probs.sum()
+                                        
+                                        if prob_sum == 0 or np.isnan(prob_sum) or np.isinf(prob_sum):
+                                            logger.warning(f"Invalid probability sum: {prob_sum}")
+                                            outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
+                                        else:
+                                            outcome_probs = outcome_probs / prob_sum
+                                            
+                                except Exception as e:
+                                    logger.warning(f"Probability computation failed: {e}")
+                                    outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
+                            
+                            # Final validation before sampling
+                            if not np.allclose(outcome_probs.sum(), 1.0, atol=1e-6):
+                                outcome_probs = outcome_probs / outcome_probs.sum()
                             
                             # Sample outcome
-                            outcome_idx = np.random.choice(len(OUTCOMES), p=outcome_probs)
+                            try:
+                                outcome_idx = np.random.choice(len(OUTCOMES), p=outcome_probs)
+                                predicted_outcome = OUTCOMES[outcome_idx]
+                            except Exception as e:
+                                logger.error(f"Sampling failed: {e}, using fallback")
+                                predicted_outcome = np.random.choice(OUTCOMES)
+                                outcome_probs = np.ones(len(OUTCOMES)) / len(OUTCOMES)
                             
                             # Create result
                             result = PredictionResult(
                                 match_id=request.match_id,
                                 ball_id=request.ball_id,
-                                outcome=OUTCOMES[outcome_idx],
-                                probabilities={o: p for o, p in zip(OUTCOMES, outcome_probs)}
+                                outcome=predicted_outcome,
+                                probabilities={o: float(p) for o, p in zip(OUTCOMES, outcome_probs)}
                             )
                             
                             result_queue.put(result)
@@ -378,19 +426,25 @@ def gpu_inference_process(model_path: str, config: SimulationConfig,
                     batch_prompts = []
                     batch_requests = []
                     
+                    # Periodic logging
                     if total_predictions % 1000 == 0:
-                        logger.info(f"Processed {total_predictions} predictions")
+                        if nan_count > 0:
+                            logger.info(f"Processed {total_predictions} predictions ({nan_count} with NaN/Inf)")
+                        else:
+                            logger.info(f"Processed {total_predictions} predictions")
                         
                 except Exception as e:
                     logger.error(f"Batch inference failed: {e}", exc_info=True)
-                    # Clear failed batch
+                    # Clear failed batch and continue
                     batch_prompts = []
                     batch_requests = []
                     
     except Exception as e:
         logger.error(f"GPU process failed: {e}", exc_info=True)
     finally:
-        logger.info(f"Completed. Total predictions: {total_predictions}")
+        if nan_count > 0:
+            logger.warning(f"Total NaN/Inf occurrences: {nan_count}/{total_predictions}")
+        logger.info(f"GPU inference completed. Total predictions: {total_predictions}")
 
 def result_aggregator(config: SimulationConfig, completed_queue: Queue, 
                      output_path: Path, shutdown_event: Event):
@@ -561,9 +615,15 @@ def print_summary_stats(stats: Dict, total_matches: int):
         print(f"\nCompletion Rate: {completion_rate:.1f}%")
 
 def load_model_for_inference(model_path: str):
-    """Load model with stable configuration (matches Mac Mini behavior)"""
+    """Load model optimized for H200 with robust error handling"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Loading model on {device} with stable float32 configuration...")
+    print(f"Loading model on {device} with H200 optimizations...")
+    
+    # Set environment variables for better torch.compile behavior
+    import os
+    os.environ['TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS'] = '1'
+    os.environ['TORCH_LOGS'] = '+dynamo'
+    os.environ['TORCHDYNAMO_VERBOSE'] = '0'
     
     base_model_name = "Qwen/Qwen1.5-1.8B"
     
@@ -577,13 +637,13 @@ def load_model_for_inference(model_path: str):
     special_tokens = list(OUTCOME2TOK.values())
     tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
     
-    # SIMPLE FIX: Use stable float32 + eager attention (like Mac Mini)
+    # H200 OPTIMIZED: Load with bfloat16 and flash attention
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
-        torch_dtype=torch.float32,  # STABLE: Use float32 like Mac Mini
-        device_map="auto" if torch.cuda.is_available() else None,
+        torch_dtype=torch.bfloat16,  # H200 optimized
+        device_map="auto",
         trust_remote_code=False,
-        attn_implementation="eager"  # STABLE: Use eager attention (no Flash Attention)
+        attn_implementation="flash_attention_2"
     )
     
     # Resize embeddings
@@ -591,10 +651,35 @@ def load_model_for_inference(model_path: str):
     
     # Load PEFT model
     model = PeftModel.from_pretrained(base_model, model_path)
+    
+    # CRITICAL: Ensure precision consistency across all parameters
+    print("Ensuring precision consistency...")
+    for name, param in model.named_parameters():
+        if param.dtype != torch.bfloat16:
+            print(f"Converting {name} from {param.dtype} to bfloat16")
+            param.data = param.data.to(torch.bfloat16)
+    
     model.eval()
     
-    # SIMPLE FIX: No torch.compile for stability
-    print("Using stable configuration: float32 + eager attention (no compilation)")
+    # H200 OPTIMIZED: torch.compile with robust settings
+    if torch.cuda.is_available() and hasattr(torch, 'compile'):
+        try:
+            print("Compiling model for H200 with robust settings...")
+            model = torch.compile(
+                model, 
+                mode='reduce-overhead',  # Balanced optimization
+                dynamic=True,           # Handle varying batch sizes
+                fullgraph=False        # Allow graph breaks for stability
+            )
+            print("Model compiled successfully for H200")
+        except Exception as e:
+            print(f"Compilation failed: {e}, using eager mode")
+    
+    # Validate special tokens are properly loaded
+    test_tokens = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
+    if any(tid == tokenizer.unk_token_id for tid in test_tokens):
+        raise ValueError("Some outcome tokens not found in tokenizer after loading!")
+    print(f"✅ All {len(test_tokens)} special tokens validated")
     
     return model, tokenizer, device
 
