@@ -18,18 +18,24 @@ from aus_wi_t20i_series_setup import get_all_matches, get_match_by_number
 # FIXED: Define patched functions at MODULE LEVEL to avoid pickle issues
 
 def load_model_for_inference_h200_fixed(model_path: str):
-    """H200 optimized model loading with robust error handling"""
+    """H200 optimized model loading with performance fixes"""
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
     from peft import PeftModel
-    from parallel_sim_v2 import OUTCOME2TOK
+    from parallel_sim_v1 import OUTCOME2TOK
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading model on {device} with H200 optimizations...")
     
-    # Set environment variables for better torch.compile behavior
+    # PERFORMANCE FIX 1: Set optimal precision settings
+    torch.set_float32_matmul_precision('high')  # Enable TensorFloat32
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    
+    # PERFORMANCE FIX 2: Set environment variables for better performance
     os.environ['TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS'] = '1'
     os.environ['TORCHDYNAMO_VERBOSE'] = '0'
+    os.environ['TORCH_CUDNN_V8_API_ENABLED'] = '1'  # Enable optimized cuDNN
     
     base_model_name = "Qwen/Qwen1.5-1.8B"
     
@@ -43,13 +49,14 @@ def load_model_for_inference_h200_fixed(model_path: str):
     special_tokens = list(OUTCOME2TOK.values())
     tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
     
-    # H200 OPTIMIZED: Load with bfloat16 and flash attention
+    # PERFORMANCE FIX 3: Optimized model loading
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
-        torch_dtype=torch.bfloat16,  # H200 optimized
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=False,
-        attn_implementation="flash_attention_2"
+        attn_implementation="flash_attention_2",
+        max_memory={0: "100GB"}  # Use more H200 memory
     )
     
     # Resize embeddings
@@ -58,7 +65,7 @@ def load_model_for_inference_h200_fixed(model_path: str):
     # Load PEFT model
     model = PeftModel.from_pretrained(base_model, model_path)
     
-    # CRITICAL: Ensure precision consistency across all parameters
+    # CRITICAL: Ensure precision consistency
     print("Ensuring precision consistency...")
     inconsistent_params = 0
     for name, param in model.named_parameters():
@@ -71,21 +78,37 @@ def load_model_for_inference_h200_fixed(model_path: str):
     
     model.eval()
     
-    # H200 OPTIMIZED: torch.compile with robust settings
+    # PERFORMANCE FIX 4: More conservative torch.compile for stability
     if torch.cuda.is_available() and hasattr(torch, 'compile'):
         try:
-            print("Compiling model for H200 with robust settings...")
+            print("Compiling model for H200 with conservative settings...")
             model = torch.compile(
                 model, 
-                mode='reduce-overhead',  # Balanced optimization
-                dynamic=True,           # Handle varying batch sizes
-                fullgraph=False        # Allow graph breaks for stability
+                mode='default',        # CHANGED: Use default instead of reduce-overhead
+                dynamic=False,         # CHANGED: Disable dynamic for better caching
+                fullgraph=True         # CHANGED: Try fullgraph for better optimization
             )
             print("✅ Model compiled successfully for H200")
         except Exception as e:
-            print(f"⚠️  Compilation failed: {e}, using eager mode")
+            print(f"⚠️  Full compilation failed: {e}")
+            try:
+                # Fallback to basic compilation
+                model = torch.compile(model, mode='default', dynamic=True, fullgraph=False)
+                print("✅ Model compiled with fallback settings")
+            except Exception as e2:
+                print(f"⚠️  All compilation failed: {e2}, using eager mode")
     
-    # Validate special tokens are properly loaded
+    # PERFORMANCE FIX 5: Warm up the model
+    print("Warming up model...")
+    dummy_input = tokenizer("1.1: 150/2 | Recent: W-1-4-1-6 | P:45@30b(9.0rr) | Bumrah(Econ2.1,1W) vs Kohli(set,45 Runs @ 150 SR) | Death 1.1 | India vs Australia, MCG", 
+                           return_tensors="pt", max_length=96, truncation=True, padding=True)
+    dummy_input = {k: v.to(device) for k, v in dummy_input.items()}
+    
+    with torch.no_grad(), torch.amp.autocast('cuda', dtype=torch.bfloat16):
+        _ = model(**dummy_input)
+    print("✅ Model warmed up")
+    
+    # Validate special tokens
     test_tokens = tokenizer.convert_tokens_to_ids(list(OUTCOME2TOK.values()))
     if any(tid == tokenizer.unk_token_id for tid in test_tokens):
         raise ValueError("Some outcome tokens not found in tokenizer after loading!")
