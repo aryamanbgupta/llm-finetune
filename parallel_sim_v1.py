@@ -627,8 +627,9 @@ def run_parallel_simulation(model_path: str, config: SimulationConfig,
     output_path.mkdir(parents=True, exist_ok=True)
     mp.set_start_method('spawn', force=True)
     
-    from real_teams_setup import create_wi_vs_pak_teams
-    team1_players, team2_players = create_wi_vs_pak_teams()
+    # from real_teams_setup import create_wi_vs_pak_teams
+    # team1_players, team2_players = create_wi_vs_pak_teams()
+    team1_players, team2_players = create_sample_teams()
     
     # Create manager and queues
     manager = Manager()
