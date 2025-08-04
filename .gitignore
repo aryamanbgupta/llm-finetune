@@ -17,3 +17,5 @@ wheels/
 cricket_prompts.jsonl
 cricket_prompts-v2.jsonl
 *.jsonl
+/test_sim_output
+/test_analysis

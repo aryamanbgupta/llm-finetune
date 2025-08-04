@@ -94,6 +94,8 @@ class MatchSimulator:
         self.match_state = MatchState(team1_name, team2_name, team1_players, team2_players, venue)
         self.ball_count = 0
         self.logger = logging.getLogger(f"Match-{match_id}")
+
+        self.match_state.initialize_innings() 
         
     def get_next_prompt(self) -> Optional[PromptRequest]:
         """Get next prompt if match not complete"""
@@ -159,13 +161,38 @@ class MatchSimulator:
             winner = self.match_state.team1_name
             margin = f"by {team1_score - team2_score} runs"
         
+        # Convert dataclass objects to dicts for JSON serialization
+        batting_stats_dict = {}
+        for team, players in self.match_state.batting_stats.items():
+            batting_stats_dict[team] = {}
+            for player_name, stats in players.items():
+                batting_stats_dict[team][player_name] = {
+                    "runs": stats.runs,
+                    "balls": stats.balls,
+                    "fours": stats.fours,
+                    "sixes": stats.sixes,
+                    "strike_rate": stats.strike_rate
+                }
+        
+        bowling_stats_dict = {}
+        for team, players in self.match_state.bowling_stats.items():
+            bowling_stats_dict[team] = {}
+            for player_name, stats in players.items():
+                bowling_stats_dict[team][player_name] = {
+                    "overs": stats.overs,
+                    "runs": stats.runs,
+                    "wickets": stats.wickets,
+                    "economy": stats.economy,
+                    "balls": stats.balls
+                }
+        
         return {
             "match_id": self.match_id,
             "winner": winner,
             "margin": margin,
             "innings_scores": self.match_state.innings_scores,
-            "batting_stats": dict(self.match_state.batting_stats),
-            "bowling_stats": dict(self.match_state.bowling_stats),
+            "batting_stats": batting_stats_dict,
+            "bowling_stats": bowling_stats_dict,
             "total_balls": self.ball_count
         }
 
@@ -600,8 +627,8 @@ def run_parallel_simulation(model_path: str, config: SimulationConfig,
     output_path.mkdir(parents=True, exist_ok=True)
     mp.set_start_method('spawn', force=True)
     
-    # Create teams
-    team1_players, team2_players = create_sample_teams()
+    from real_teams_setup import create_wi_vs_pak_teams
+    team1_players, team2_players = create_wi_vs_pak_teams()
     
     # Create manager and queues
     manager = Manager()
