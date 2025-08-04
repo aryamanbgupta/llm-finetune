@@ -22,7 +22,7 @@ def load_model_for_inference_h200_fixed(model_path: str):
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
     from peft import PeftModel
-    from parallel_sim_v1 import OUTCOME2TOK
+    from parallel_sim_v2 import OUTCOME2TOK
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading model on {device} with H200 optimizations...")
@@ -100,7 +100,7 @@ def gpu_inference_process_h200_fixed(model_path: str, config, prompt_queue, resu
     import queue
     import time
     import logging
-    from parallel_sim_v1 import OUTCOMES, PredictionResult, OUTCOME2TOK
+    from parallel_sim_v2 import OUTCOMES, PredictionResult, OUTCOME2TOK
     
     logger = logging.getLogger("GPU-Inference")
     logger.info("Starting H200 optimized GPU inference process")
@@ -269,20 +269,20 @@ def simulate_match_series(model_path: str, simulations_per_match: int = 10000,
     print()
     
     # FIXED: Patch at module level to avoid pickle issues
-    import parallel_sim_v1
+    import parallel_sim_v2
     
     # Store original functions
-    original_load_model = getattr(parallel_sim_v1, 'load_model_for_inference', None)
-    original_gpu_process = getattr(parallel_sim_v1, 'gpu_inference_process', None)
+    original_load_model = getattr(parallel_sim_v2, 'load_model_for_inference', None)
+    original_gpu_process = getattr(parallel_sim_v2, 'gpu_inference_process', None)
     
     # FIXED: Monkey patch with module-level functions (picklable)
-    parallel_sim_v1.load_model_for_inference = load_model_for_inference_h200_fixed
-    parallel_sim_v1.gpu_inference_process = gpu_inference_process_h200_fixed
-    print("✅ Applied H200 optimizations to parallel_sim_v1")
+    parallel_sim_v2.load_model_for_inference = load_model_for_inference_h200_fixed
+    parallel_sim_v2.gpu_inference_process = gpu_inference_process_h200_fixed
+    print("✅ Applied H200 optimizations to parallel_sim_v2")
     
     try:
         # Import after patching
-        from parallel_sim_v1 import SimulationConfig, run_parallel_simulation
+        from parallel_sim_v2 import SimulationConfig, run_parallel_simulation
         
         # Get all match configurations
         all_matches = get_all_matches()
@@ -337,13 +337,13 @@ def simulate_match_series(model_path: str, simulations_per_match: int = 10000,
             match_output.mkdir(exist_ok=True)
             
             # MONKEY PATCH: Temporarily replace team creation function
-            original_create_teams = getattr(parallel_sim_v1, 'create_sample_teams', None)
+            original_create_teams = getattr(parallel_sim_v2, 'create_sample_teams', None)
             
             # Create new function that returns our match teams
             match_teams_func = create_match_teams_function(match_config)
             
             # Replace the function in the module
-            parallel_sim_v1.create_sample_teams = match_teams_func
+            parallel_sim_v2.create_sample_teams = match_teams_func
             
             try:
                 # Run simulation with match-specific teams
@@ -378,7 +378,7 @@ def simulate_match_series(model_path: str, simulations_per_match: int = 10000,
             finally:
                 # RESTORE: Put back original function
                 if original_create_teams:
-                    parallel_sim_v1.create_sample_teams = original_create_teams
+                    parallel_sim_v2.create_sample_teams = original_create_teams
         
         # Series summary
         total_elapsed = time.time() - series_start_time
@@ -397,10 +397,10 @@ def simulate_match_series(model_path: str, simulations_per_match: int = 10000,
     finally:
         # RESTORE: Put back original functions
         if original_load_model:
-            parallel_sim_v1.load_model_for_inference = original_load_model
+            parallel_sim_v2.load_model_for_inference = original_load_model
         if original_gpu_process:
-            parallel_sim_v1.gpu_inference_process = original_gpu_process
-        print("✅ Restored original parallel_sim_v1 functions")
+            parallel_sim_v2.gpu_inference_process = original_gpu_process
+        print("✅ Restored original parallel_sim_v2 functions")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simulate AUS vs WI T20I series - H200 Optimized (FIXED)")
